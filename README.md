@@ -77,7 +77,7 @@ All messages from client to server are **requests**, following requests can be s
 
 ##### Request to start the game from lobby.
 
-| Request Name | `req_join_game`|
+| Request Name | `req_start_game` |
 |--------------|----------------|
 |From| Room admin.|
 
@@ -128,14 +128,13 @@ Therefore there are two special cases in the application that necessitates.
 
 ###### Postconditions
 
-* User is sent their room ID, as well as admin setup.
+* User is sent their room ID, as well as player data.
 
 ###### Format
 
 ```json
 {
     "room_id": "ABCDE",
-    "is_you": true,
     "user_id": "user_id",
     "name": "user_name",
     "portraitName": "portrait_id",
@@ -158,21 +157,29 @@ Therefore there are two special cases in the application that necessitates.
 
 ###### Postconditions
 
-* User is sent back the ID of the room they wanted to join in the first place.
+* User is sent back the ID of the room they wanted to join in the first place as well as the assigned player ID.
+* as well as *their* player information.
 
 ###### Format
 
 ```json
 {
-    "roomID": "ID of the room user wanted to join."
+    "roomID": "ID of the room user wanted to join.",
+    "player": {
+        "user_id": "user_id",
+        "name": "user_name",
+        "portraitName": "portrait_id",
+        "playerRole": "playerRole",
+        "admin": true
+    }
 }
 ```
 
 
 
-##### Update Player List  (Add)
+##### Sync Player List 
 
-| Response Name | `resp_join_player`                         |
+| Response Name | `resp_sync_players`                        |
 | ------------- | ------------------------------------------ |
 | To            | Members of a room when a new player joins. |
 
@@ -188,15 +195,56 @@ Therefore there are two special cases in the application that necessitates.
 ###### Format
 
 ```json
-{
-    "is_you": true,
-    "user_id": "user_id",
-    "name": "user_name",
-    "portraitName": "portrait_id",
-    "playerRole": "playerRole"
-    "admin": true
+{	
+    "players": 
+ 	[
+        {
+            "user_id": "user_id",
+            "name": "user_name",
+            "portraitName": "portrait_id",
+            "playerRole": "playerRole",
+            "admin": true
+        },
+    	{
+            "user_id": "user_id",
+            "name": "user_name",
+            "portraitName": "portrait_id",
+            "playerRole": "playerRole",
+            "admin": false
+        }
+    ]
 }
 ```
 
 
 
+##### Update the Game State
+
+| Response Name | `resp_syn_gamestate`                                    |
+| ------------- | ------------------------------------------------------- |
+| To            | Members of a room when the game is started or finished. |
+
+###### Preconditions
+
+* May occur due to a `req_start_game` request.
+* May occur following a `req_next_turn` request.
+* May occur following a `req_burn_player` request.
+* May occur following a `req_conv_changling` request.
+
+###### Postconditions
+
+* The game state is synced up between client states.
+
+###### Format
+
+```json
+{
+    "ownership": "playerid",
+    "turn_count": 40,
+    "game_state": game_state_id
+}
+```
+
+* Where `game_state_id` is an integer value of the enum as defined in the `src/game_internals.py` of the backend and `src/gameInternals.js` of the frontend.
+
+* Where the `ownership` refeers to the player able to use the button.

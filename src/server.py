@@ -10,7 +10,7 @@ from game_internals import GameRoom, User, GameState, PlayerState, RoomConnectio
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' # This will obviously change on production.
 socketio = SocketIO(app, cors_allowed_origins="*")
-room_manager = RoomConnectionManager(host="localhost", port=6379, db=0)
+room_manager = RoomConnectionManager()
 app.config['MAX_USERS_PER_ROOM'] = 5
 
 

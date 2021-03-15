@@ -3,7 +3,7 @@ from enum import Enum
 from random import random, choice
 import pickle
 from json import dumps
-from typing import Optional
+from typing import Optional, Any, Callable
 
 from redis import Redis
 
@@ -32,12 +32,165 @@ class PlayerState(Enum):
     DEAD = "dead"
 
 
-@dataclass
-class User:
-    user_id: str
-    username: str
-    portrait_name: str
-    player_role: PlayerState = PlayerState.UNASSIGNED
+class NoSuchRoomException(Exception):
+    """
+    Thrown in case there is no such room yet.
+    """
+    pass
+
+
+class Singleton(type):
+    """
+    A metaclass that turns classes deriving from it into
+    Singleton classes, only one class can derive from this
+    variation for the sake of simplicity.
+
+    Modified version of: https://stackoverflow.com/a/6798042/6663851
+    """
+    instance: "Singleton" = None
+
+    def __call__(cls, *args, **kwargs) -> "Singleton":
+        if cls.instance is None: # If it hasn't been created yet.
+            cls.instance = super(Singleton, cls).__call__() # Create it.
+        return cls.instance
+
+
+class ConnectionManager(metaclass=Singleton):
+    """
+    Connection manager for Redis instance, a singleton.
+    """
+    def __init__(self):
+        self.connection = Redis(host="localhost", port=6379, db=0)
+
+    def create_obj(self, obj_type: str, obj_id: str, mapping: dict[str, str]) -> None:
+        """
+        Create an object of given type.
+
+        :param obj_type: Type of the object.
+        :param obj_id: ID of the object.
+        :param mapping: KV pairs for the object.
+        :return:
+        """
+        self.connection.hmset(f"{obj_type}:{obj_id}", mapping)
+
+    def modify(self, obj_type: str, id_: str, attribute: str, new_value: Any) -> None:
+        """
+        Modify an object in the Redis KV store, objects are
+            hashes. Users and static string values of Rooms
+            are objects.
+
+        :param obj_type: Type of the object to modify.
+        :param id_: Id of the Object to modify.
+        :param attribute: Attribute to be modified.
+        :param new_value: New value of the attribute.
+        """
+        self.connection.hset(f"{obj_type}:{id_}", attribute, new_value)
+
+    def get_from(self, obj_type: str, id_: str, attribute: str) -> str:
+        """
+        Get an attribute of an object given its type and id.
+
+        :param obj_type: Type of the object, User or Room.
+        :param id_: ID of the object.
+        :param attribute: Attribute to access.
+        :return: The attribute of the object.
+        """
+        return self.connection.hget(f"{obj_type}:{id_}", attribute)
+
+    def get(self, obj_type: str, id_: str, attribute: str) -> Any:
+        """
+        Get the value from REDIS.
+
+        :param obj_type: Type of the object.
+        :param id_: ID of the object.
+        :param attribute: Attribute to be get.
+        :return: the Attribute.
+        """
+        return self.connection.get(f"{obj_type}:{id_}:{attribute}")
+
+    def push_list(self, owner: "ConnectionObject", list_name: str, obj: str, transform: Callable = None):
+        """
+        Push the object into the list, if transform is provided,
+            transform the object with this method first.
+
+        :param owner: List owner object.
+        :param list_name: List that will hold the object.
+        :param obj: Object to be pushed.
+        :param transform: If provided object will be transformed first.
+        """
+        if transform:
+            obj = transform(obj)
+        self.connection.rpush(f"{owner.type_}:{owner.id_}:{list_name}", obj)
+
+    def get_list(self, owner: "ConnectionObject", list_name: str, transform: Callable = None) -> list[Any]:
+        """
+        Get a list from the Redis KV store, if tranform is provided,
+            transform the contents accordingly.
+
+        :param owner: Owner of the list.
+        :param list_name: Name of the list.
+        :param transform: Transformation function to be applied,
+            by default, None.
+        :return: A list of object mapped to the transformation function,
+            if it exists.
+        """
+        list_ = self.connection.lrange(f"{owner.type_}:{owner.id_}:{list_name}", 0, -1) # Get all elements.
+        if transform:
+            list_ = [transform(element) for element in list_]
+        return list_
+
+    def __contains__(self, item) -> bool:
+        """
+        Check if the given object exists in the KV store.
+
+        :param item: Item to check for.
+        :return: True if it is in Redis, False otherwise.
+        """
+        if not isinstance(item, ConnectionObject):
+            return False
+        return self.connection.exists(f"{item.type_}:{item.id_}")
+
+
+class ConnectionObject:
+    """
+    Any object that is saved inside Redis KV.
+    """
+    connection_manager: ConnectionManager = ConnectionManager() # The global connection manager.
+
+    def __init__(self, type_: str, id_: str, mapping: dict[str, str]):
+        self.type_ = type_
+        self.id_ = id_
+        if self not in self.connection_manager: # If the item does not exist in the Redis
+            self.connection_manager.create_obj(self.type_, self.id_, mapping) # Create it.
+
+    def __getattr__(self, item):
+        """
+        Return an attribute of the User.
+        :param item: Attribute to return.
+        :return: The attribute
+        """
+        return self.connection_manager.get_from(self.type_, self.user_id, item)
+
+    def __setattr__(self, key, value) -> None:
+        """
+        Set an attribute of the user.
+        :param key: Name of the attribute.
+        :param value: New value for the attribute.
+        """
+        self.connection_manager.modify(self.type_, self.id_, key, value)
+
+
+class User(ConnectionObject):
+    """
+    A User class that is used to construct a user.
+    """
+    def __init__(self, user_id: str, username: str = "", portrait_name: str = "", player_role=PlayerState.UNASSIGNED):
+        self.__dict__["user_id"] = user_id
+        values = {"user_id": user_id,
+                  "username": username,
+                  "portrait_name": portrait_name,
+                  "player_role": player_role}
+        super().__init__('user', user_id, values)
 
     def __eq__(self, other) -> bool:
         if type(self) != type(other):
@@ -66,20 +219,46 @@ class User:
         }
 
 
-@dataclass
-class GameRoom:
-    room_id: str  # Unique id of the room.
-    admin: User  # Session ID of the admin.
-    users: list[User]  # Ordered users.
-    changelings: list[User]  # Ordered changelings.
-    turn: int  # Turn the game is in.
-    turn_state: GameState
-    turn_owner_index: int = 0  # Index of the turn owner.
-    real_turn: int = 0
+class Room(ConnectionObject):
+    """
+    Manages requests to get and modify Room objects
+    between different threads using a Redis database
+    residing in memory.
+    """
+    def __init__(self, room_id: str, admin: User = None) -> None:
+        self.__dict__["room_id"] = room_id
+        values = {
+            "room_id": room_id,
+            "admin": admin.user_id,
+            "turn_state": GameState.LOBBY, # Initial condition.
+            "turn": 0,
+            "real_turn": 0,
+            "turn_owner_index": 0
+        }
+        super().__init__('room', room_id, values)
+        self.connection_manager.push_list(self, 'users', admin.user_id)
+
+    def __getattr__(self, item) -> Any:
+        # Get Attribute must be overriden
+        # To deal with lists.
+        if item in ['users', 'changelings']:
+            return self.connection_manager.get_list(self, item, lambda e: User(e))
+        return super().__getattr__(item)  # Otherwise call connection object's variation.
+
+    def generate_room_id(self) -> str:
+        """
+        Generate a unique room ID.
+
+        :return: a new room ID.
+        """
+        room_id = f"{hash(random()):X}"[0:6]  # Generate a random room ID.
+        while self.connection_manager.connection.exists(f"room:{room_id}"):  # Continue generating until no match in rooms.
+            room_id = f"{hash(random()):X}"[0:6]
+        return room_id
 
     @property
     def turn_owner(self) -> User:
-        return self.users[self.turn_owner_index]
+        return self.users[self.turn_owner_index % 5]
 
     @turn_owner.setter
     def turn_owner(self, owner: User) -> None:
@@ -92,11 +271,11 @@ class GameRoom:
 
         :return: the User that became the changeling.
         """
-        for user in self.users: # Initially make them all campers.
+        for user in self.users:  # Initially make them all campers.
             user.player_role = PlayerState.CAMPER
         random_camper = choice(self.users)
         random_camper.player_role = PlayerState.CHANGELING  # Set random user to changeling.
-        self.changelings.append(random_camper)
+        self.connection_manager.push_list(self, "changelings", random_camper.user_id)
         return random_camper  # Return that user.
 
     def get_user_states(self, show_changelings: bool) -> str:
@@ -137,72 +316,5 @@ class GameRoom:
         else:
             self.turn += 1
             self.turn_owner_index += 1
-            self.turn_owner_index %= 5  # Wrap the index.
 
 
-class NoSuchRoomException(Exception):
-    """
-    Thrown in case there is no such room yet.
-    """
-    pass
-
-
-class RoomConnectionManager:
-    """
-    Manages requests to get and modify Room objects
-    between different threads using a Redis database
-    residing in memory.
-    """
-
-    def __init__(self, **kwargs) -> None:
-        self.connection = Redis(**kwargs)  # Establish communication.
-
-    def __setitem__(self, room_id: str, room_obj: GameRoom) -> None:
-        """
-        Add the room to the Redis database for syncing up
-            between different players.
-
-        :param room_id: ID of the room.
-        :param room_obj: Room object.
-        """
-        room_picked = pickle.dumps(room_obj)
-        self.connection.set(room_id, room_picked)
-
-    def __getitem__(self, room_id: str) -> GameRoom:
-        """
-        Get a room object from Redis.
-
-        :param room_id: ID Of the room object.
-        :return: the Room object.
-        """
-        if room_id not in self:
-            raise NoSuchRoomException
-        return pickle.loads(self.connection.get(room_id))
-
-    def __delitem__(self, room_id: str) -> None:
-        """
-        Delete a room from the Redis storage.
-
-        :param room_id: Room to delete.
-        """
-        self.connection.delete(room_id)
-
-    def __contains__(self, room_id: str) -> bool:
-        """
-        Check if a room is in the Redis storage.
-
-        :param room_id: ID of the room.
-        :return: True if the room is in memory.
-        """
-        return self.connection.exists(room_id) > 0
-
-    def generate_room_id(self) -> str:
-        """
-        Generate a unique room ID.
-
-        :return: a new room ID.
-        """
-        room_id = f"{hash(random()):X}"[0:6]  # Generate a random room ID.
-        while room_id in self:  # Continue generating until no match in rooms.
-            room_id = f"{hash(random()):X}"[0:6]
-        return room_id

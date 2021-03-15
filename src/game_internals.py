@@ -139,6 +139,9 @@ class ConnectionManager(metaclass=Singleton):
             list_ = [transform(element) for element in list_]
         return list_
 
+    def exists(self, key) -> bool:
+        return self.connection.exists(key)
+
     def __contains__(self, item) -> bool:
         """
         Check if the given object exists in the KV store.
@@ -245,14 +248,15 @@ class Room(ConnectionObject):
             return self.connection_manager.get_list(self, item, lambda e: User(e))
         return super().__getattr__(item)  # Otherwise call connection object's variation.
 
-    def generate_room_id(self) -> str:
+    @classmethod
+    def generate_room_id(cls) -> str:
         """
         Generate a unique room ID.
 
         :return: a new room ID.
         """
         room_id = f"{hash(random()):X}"[0:6]  # Generate a random room ID.
-        while self.connection_manager.connection.exists(f"room:{room_id}"):  # Continue generating until no match in rooms.
+        while cls.connection_manager.connection.exists(f"room:{room_id}"):  # Continue generating until no match in rooms.
             room_id = f"{hash(random()):X}"[0:6]
         return room_id
 
@@ -316,5 +320,32 @@ class Room(ConnectionObject):
         else:
             self.turn += 1
             self.turn_owner_index += 1
+
+    @classmethod
+    def room_exists(cls, room_id: str) -> bool:
+        """
+        Check if a room exists in the REDIS.
+
+        :param cls: Class itself.
+        :param room_id: ID of the Room.
+        :return: If the room exists.
+        """
+        return cls.connection_manager.exists(f"room:{room_id}")
+
+    def add_player(self, user: User) -> None:
+        """
+        Add a player to the room.
+
+        :param user: User to add.
+        """
+        self.connection_manager.push_list(self, 'users', user.id_)
+
+    def add_changeling(self, user: User) -> None:
+        """
+        Add a changeling to the room.
+
+        :param user: User to add.
+        """
+        self.connection_manager.push_list(self, 'changelings', user.id_)
 
 

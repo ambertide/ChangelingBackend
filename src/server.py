@@ -22,9 +22,8 @@ def sync_room_state(room_id: str) -> None:
     :return:
     """
     room = room_manager[room_id]  # Get the room.
-    socketio.emit("resp_sync_gamestate", dumps({
-        room.game_state
-    }), room=room_id)  # Emit the new game state to all members of the room.
+    socketio.emit("resp_sync_gamestate", dumps(room.game_state),
+                  room=room_id)  # Emit the new game state to all members of the room.
     sync_user_states(room_id)
 
 
@@ -108,7 +107,7 @@ def join_game(data) -> None:
         emit_error("err_user_limit")
         return
     room.users.append(new_user)
-    socketio.emit("resp_ack_join", dumps({"roomID": room_id, "player": new_user.get_player_data()}))  # Acknowledge game join
+    socketio.emit("resp_ack_join", dumps({"roomID": room_id, "player": new_user.get_player_data()}), room=user_id)  # Acknowledge game join
     session["user_obj"] = new_user
     session["user_room"] = room_id
     room_manager[room_id] = room
@@ -130,13 +129,25 @@ def start_game() -> None:
     if selected_user == session['user_obj']:  # If our player turned.
         session['user_obj'] = selected_user  # Update its state.
     room_manager[room_id] = room  # Update the room_state
+    socketio.emit("resp_ack_start", room=room_id)  # Send start signal.
     sync_room_state(room_id)  # Synchronise the room state.
 
 
-@socketio.on("message")
-def general_msg(data):
-    print("Message")
-    return ""
+@socketio.on("req_next_turn")
+def next_turn() -> None:
+    """
+    Answer to the request to progress to
+        the next turn.
+    """
+    user, room = session['user_obj'], room_manager[session['user_room']]
+    if user != room.turn_owner:
+        emit_error("err_user_not_owner")  # User does not have the permission for this!
+    else:
+        room.next_turn()
+        room_manager[session['user_room']] = room
+        sync_room_state(session['user_room'])  # Sync the room state.
+
+
 
 if __name__ == '__main__':
     socketio.run(app,  debug=True)

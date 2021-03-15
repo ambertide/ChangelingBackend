@@ -94,6 +94,24 @@ All messages from client to server are **requests**, following requests can be s
 
 No format, empty event.
 
+##### Request Next Turn
+
+| Request Name | `req_next_turn` |
+| ------------ | --------------- |
+| From         | Turn owner.     |
+
+###### Preconditions
+
+* User must be the turn owner.
+
+###### Postconditions
+
+* Progress to the next turn.
+
+###### Format
+
+No format, empty event.
+
 #### Server Updates
 
 Server provides the following updates to sync up the game state between the clients:

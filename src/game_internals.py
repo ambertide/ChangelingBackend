@@ -55,7 +55,7 @@ class User:
         """
         player_role = self.player_role
         if player_role == PlayerState.CHANGELING and not show_changeling:
-            player_role = PlayerState.CAMPER # Campers can't see changelings
+            player_role = PlayerState.CAMPER  # Campers can't see changelings
             # Are changelings.
         return {
             "user_id": self.user_id,
@@ -82,7 +82,7 @@ class GameRoom:
         return self.users[self.turn_owner_index]
 
     @turn_owner.setter
-    def set_turn_owner(self, owner: User) -> None:
+    def turn_owner(self, owner: User) -> None:
         self.turn_owner_index = self.users.index(owner)
 
     def assign_roles(self) -> User:
@@ -137,6 +137,7 @@ class GameRoom:
         else:
             self.turn += 1
             self.turn_owner_index += 1
+            self.turn_owner_index %= 5  # Wrap the index.
 
 
 class NoSuchRoomException(Exception):

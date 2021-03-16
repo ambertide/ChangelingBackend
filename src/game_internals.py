@@ -62,16 +62,19 @@ class ConnectionManager(metaclass=Singleton):
     def __init__(self):
         self.connection = Redis(host="localhost", port=6379, db=0)
 
-    def create_obj(self, obj_type: str, obj_id: str, mapping: dict[str, str]) -> None:
+    def create_obj(self, object_: "ConnectionObject", mapping: dict[str, str], suffix: str = "") -> None:
         """
         Create an object of given type.
 
-        :param obj_type: Type of the object.
-        :param obj_id: ID of the object.
+        :param object_: Owner of the mapping.
         :param mapping: KV pairs for the object.
+        :param suffix: Object suffix to follow after id.
         :return:
         """
-        self.connection.hmset(f"{obj_type}:{obj_id}", mapping)
+        key = f"{object_.type_}:{object_.id_}"
+        if suffix:
+            key += f":{suffix}"
+        self.connection.hmset(suffix, mapping)
 
     def modify(self, obj_type: str, id_: str, attribute: str, new_value: Any) -> None:
         """
@@ -140,6 +143,11 @@ class ConnectionManager(metaclass=Singleton):
         return list_
 
     def exists(self, key) -> bool:
+        """
+        Check if a certain key exists in Redis KV store.
+        :param key: Key to check for.
+        :return: True if the key exists.
+        """
         return self.connection.exists(key)
 
     def __contains__(self, item) -> bool:
@@ -153,6 +161,20 @@ class ConnectionManager(metaclass=Singleton):
             return False
         return self.connection.exists(f"{item.type_}:{item.id_}")
 
+    def increment(self, object_: "ConnectionObject", attribute: str, suffix: str = "") -> None:
+        """
+        Increment an attribute of an object in the
+            KV store.
+
+        :param object_: Object that owns the attribute.
+        :param attribute: Attribute to increment.
+        :param suffix: Suffix of the object to be added after type, if exists.
+        """
+        key = f"{object_.type_}:{object_.type_}"
+        if suffix:
+            key += f":{suffix}"  # Add suffix if exists.
+        self.connection.hincrby(key, attribute, 1)
+
 
 class ConnectionObject:
     """
@@ -161,10 +183,11 @@ class ConnectionObject:
     connection_manager: ConnectionManager = ConnectionManager() # The global connection manager.
 
     def __init__(self, type_: str, id_: str, mapping: dict[str, str]):
-        self.type_ = type_
-        self.id_ = id_
-        if self not in self.connection_manager: # If the item does not exist in the Redis
-            self.connection_manager.create_obj(self.type_, self.id_, mapping) # Create it.
+        self.__dict__["type_"] = type_
+        self.__dict__["id_"] = id_
+        self.__dict__["cache"] = {}  # Create a cache.
+        if self not in self.connection_manager:  # If the item does not exist in the Redis
+            self.connection_manager.create_obj(self, mapping)  # Create it.
 
     def __getattr__(self, item):
         """
@@ -172,6 +195,8 @@ class ConnectionObject:
         :param item: Attribute to return.
         :return: The attribute
         """
+        if item in self.__dict__["cache"]:  # Check if it is in cache.
+            return self.__dict__["cache"][item]
         return self.connection_manager.get_from(self.type_, self.user_id, item)
 
     def __setattr__(self, key, value) -> None:
@@ -181,7 +206,7 @@ class ConnectionObject:
         :param value: New value for the attribute.
         """
         self.connection_manager.modify(self.type_, self.id_, key, value)
-
+        self.__dict__["cache"][key] = value  # Cache the change.
 
 class User(ConnectionObject):
     """
@@ -307,19 +332,39 @@ class Room(ConnectionObject):
             "ownership": self.turn_owner.user_id
         }
 
-    def next_turn(self) -> None:
+    def set_up_voting(self) -> None:
+        """
+        Set up the voting objects.
+        """
+        users: list[User] = self.users
+        mapping = {user.user_id: 0 for user in users}  # Create the voting map
+        self.connection_manager.create_obj(self, mapping, "user_votes")  # Generate the voting object.
+
+    def cast_vote(self, user_id) -> None:
+        """
+        Cast a vote to burn a particular user.
+
+        :param user_id: ID of the user voted to be burned
+        """
+        self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
+
+
+    def next_turn(self) -> GameState:
         """
         Proceed to the next turn decide if it should be a special turn.
 
-        :return: None
+        :return: The state the turn is in after progressing.
         """
-        self.real_turn += 1  # This is updated no matter what.
-        if self.turn != 0 and self.turn % 5: # If turn is divisible by five
+        self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
+        if self.turn != 0 and self.turn % 5:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
             self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.CHANGELING_VICTORY])
+            if self.turn_state == GameState.BURN_CAMPER:
+                self.set_up_voting()
         else:
-            self.turn += 1
-            self.turn_owner_index += 1
+            self.connection_manager.increment(self, 'turn')
+            self.connection_manager.increment(self, 'turn_owner_index')
+        return self.turn_state
 
     @classmethod
     def room_exists(cls, room_id: str) -> bool:

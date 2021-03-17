@@ -1,10 +1,7 @@
-from dataclasses import dataclass
 from enum import Enum
 from random import random, choice
-import pickle
 from json import dumps
-from typing import Optional, Any, Callable
-
+from typing import Any, Callable
 from redis import Redis
 
 
@@ -60,7 +57,7 @@ class ConnectionManager(metaclass=Singleton):
     Connection manager for Redis instance, a singleton.
     """
     def __init__(self):
-        self.connection = Redis(host="localhost", port=6379, db=0)
+        self.connection = Redis(host="localhost", port=6379, db=0, decode_responses=True)
 
     def create_obj(self, object_: "ConnectionObject", mapping: dict[str, str], suffix: str = "") -> None:
         """
@@ -74,7 +71,7 @@ class ConnectionManager(metaclass=Singleton):
         key = f"{object_.type_}:{object_.id_}"
         if suffix:
             key += f":{suffix}"
-        self.connection.hmset(suffix, mapping)
+        self.connection.hmset(key, mapping)
 
     def modify(self, obj_type: str, id_: str, attribute: str, new_value: Any) -> None:
         """
@@ -98,7 +95,10 @@ class ConnectionManager(metaclass=Singleton):
         :param attribute: Attribute to access.
         :return: The attribute of the object.
         """
-        return self.connection.hget(f"{obj_type}:{id_}", attribute)
+        val = self.connection.hget(f"{obj_type}:{id_}", attribute)
+        if isinstance(val, bytes):
+            val = val.decode(encoding='utf-8') # Convert to string.
+        return val
 
     def get(self, obj_type: str, id_: str, attribute: str) -> Any:
         """
@@ -197,7 +197,9 @@ class ConnectionObject:
         """
         if item in self.__dict__["cache"]:  # Check if it is in cache.
             return self.__dict__["cache"][item]
-        return self.connection_manager.get_from(self.type_, self.user_id, item)
+        value = self.connection_manager.get_from(self.type_, self.user_id, item)
+        self.__dict__['cache'][item] = value  # Cache it if it is not.
+        return value
 
     def __setattr__(self, key, value) -> None:
         """
@@ -205,8 +207,12 @@ class ConnectionObject:
         :param key: Name of the attribute.
         :param value: New value for the attribute.
         """
-        self.connection_manager.modify(self.type_, self.id_, key, value)
-        self.__dict__["cache"][key] = value  # Cache the change.
+        store_value = value # Value to be stored.
+        if isinstance(value, Enum): # If value is enum
+            store_value = value.value # String version of the enum.
+        self.connection_manager.modify(self.type_, self.id_, key, store_value)
+        self.__dict__["cache"][key] = value  # Cache the change, the enum version if it is enum..
+
 
 class User(ConnectionObject):
     """
@@ -214,10 +220,12 @@ class User(ConnectionObject):
     """
     def __init__(self, user_id: str, username: str = "", portrait_name: str = "", player_role=PlayerState.UNASSIGNED):
         self.__dict__["user_id"] = user_id
-        values = {"user_id": user_id,
-                  "username": username,
-                  "portrait_name": portrait_name,
-                  "player_role": player_role}
+        values = {
+            "user_id": user_id,
+            "username": username,
+            "portrait_name": portrait_name,
+            "player_role": player_role.value
+                  }
         super().__init__('user', user_id, values)
 
     def __eq__(self, other) -> bool:
@@ -225,14 +233,21 @@ class User(ConnectionObject):
             return False
         return self.user_id == other.user_id
 
+    def __getattr__(self, item) -> Any:
+        # Get Attribute must be overriden
+        # To deal with enums.
+        if item == 'player_role':
+            return PlayerState(super().__getattr__('player_role'))
+        return super().__getattr__(item)  # Otherwise call connection object's variation.
+
     def get_player_data(self, admin: bool = False, show_changeling: bool = False):
         """
-        Get JSON serialisable player data.
+        Get JSON serializable player data.
 
         :param admin: true if the user is admin.
         :param show_changeling: If false, changelings are shown as
             campers.
-        :return: JSON serialisable player data as dict.
+        :return: JSON serializable player data as dict.
         """
         player_role = self.player_role
         if player_role == PlayerState.CHANGELING and not show_changeling:
@@ -258,7 +273,7 @@ class Room(ConnectionObject):
         values = {
             "room_id": room_id,
             "admin": admin.user_id,
-            "turn_state": GameState.LOBBY, # Initial condition.
+            "turn_state": GameState.LOBBY.value,  # Initial condition.
             "turn": 0,
             "real_turn": 0,
             "turn_owner_index": 0
@@ -268,10 +283,22 @@ class Room(ConnectionObject):
 
     def __getattr__(self, item) -> Any:
         # Get Attribute must be overriden
-        # To deal with lists.
+        # To deal with lists and enums.
         if item in ['users', 'changelings']:
             return self.connection_manager.get_list(self, item, lambda e: User(e))
+        elif item == 'turn_state':
+            return GameState(super().__getattr__('turn_state'))
         return super().__getattr__(item)  # Otherwise call connection object's variation.
+
+    def __setattr__(self, key, value) -> None:
+        # Setattr is overridden to set
+        # the turn_owner since properties are
+        # overriden by the parent setattr.
+        if key == 'turn_owner':
+            users = self.users
+            self.turn_owner_index = self.users.index(value)
+        else:
+            super().__setattr__(key, value)
 
     @classmethod
     def generate_room_id(cls) -> str:
@@ -288,10 +315,6 @@ class Room(ConnectionObject):
     @property
     def turn_owner(self) -> User:
         return self.users[self.turn_owner_index % 5]
-
-    @turn_owner.setter
-    def turn_owner(self, owner: User) -> None:
-        self.turn_owner_index = self.users.index(owner)
 
     def assign_roles(self) -> User:
         """
@@ -347,7 +370,6 @@ class Room(ConnectionObject):
         :param user_id: ID of the user voted to be burned
         """
         self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
-
 
     def next_turn(self) -> GameState:
         """

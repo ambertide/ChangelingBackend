@@ -70,9 +70,10 @@ def host_game(data: str) -> None:
         emit_error("err_already_joined")
         return
     user_id = request.sid
-    new_user = User(user_id, payload["name"], payload["portrait"])
+    new_user = User(user_id, payload["name"], payload["portrait"], player_role=PlayerState.UNASSIGNED)
     room_id = Room.generate_room_id()  # Generate new room id.
     new_room = Room(room_id, new_user)
+    new_room.add_player(new_user)
     new_room.turn_owner = new_user  # Set the admin as the current turn owner.
     join_room(room_id)  # Actually join the room.
     session["user_room"] = room_id

@@ -1,5 +1,5 @@
 # Websockets server for the Changeling.
-from flask import Flask, session, request, g
+from flask import Flask, session, request
 from json import dumps, loads
 from flask_socketio import SocketIO, join_room, rooms
 from game_internals import User, GameState, PlayerState, Room

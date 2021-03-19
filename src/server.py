@@ -51,7 +51,7 @@ def emit_error(err_type: str) -> None:
 
     :param err_type: Error type.
     """
-    socketio.emit("error_occured", dumps({
+    socketio.emit("resp_err_occurred", dumps({
         "err_type": err_type
     }))
 
@@ -118,7 +118,7 @@ def start_game() -> None:
     user, room_id = session['user_obj'], session['user_room']  # Get the current user and room id.
     room = Room(room_id)  # Get the room object from the room manager.
     room.turn_state = GameState.NORMAL  # Start the game.
-    room.turn = 40
+    room.turn = 0
     room.turn_owner = room.users[0]
     selected_user = room.assign_roles()
     if selected_user == session['user_obj']:  # If our player turned.

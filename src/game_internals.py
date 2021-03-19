@@ -170,7 +170,7 @@ class ConnectionManager(metaclass=Singleton):
         :param attribute: Attribute to increment.
         :param suffix: Suffix of the object to be added after type, if exists.
         """
-        key = f"{object_.type_}:{object_.type_}"
+        key = f"{object_.type_}:{object_.id_}"
         if suffix:
             key += f":{suffix}"  # Add suffix if exists.
         self.connection.hincrby(key, attribute, 1)
@@ -195,8 +195,8 @@ class ConnectionObject:
         :param item: Attribute to return.
         :return: The attribute
         """
-        if item in (cache := self.__dict__["cache"]) and (val := cache[item]) is not None:  # Check if it is in cache.
-            return val
+#        if item in (cache := self.__dict__["cache"]) and (val := cache[item]) is not None:  # Check if it is in cache.
+#            return val
         value = self.connection_manager.get_from(self.type_, self.id_, item)
         self.__dict__['cache'][item] = value  # Cache it if it is not.
         return value
@@ -324,7 +324,7 @@ class Room(ConnectionObject):
     @property
     def turn_owner(self) -> User:
         users_list = self.connection_manager.get_list(self, 'users', lambda e: User(e))
-        return users_list[int(self.turn_owner_index) % 5]
+        return users_list[int(self.turn_owner_index) % len(users_list)]
 
     def assign_roles(self) -> User:
         """
@@ -387,7 +387,7 @@ class Room(ConnectionObject):
         :return: The state the turn is in after progressing.
         """
         self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
-        if self.turn != 0 and self.turn % 5:  # If turn is divisible by five
+        if self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
             self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.CHANGELING_VICTORY])
             if self.turn_state == GameState.BURN_CAMPER:

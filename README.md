@@ -1,6 +1,49 @@
 # Changeling Server
 the Websocket server for the Changeling game, this readme includes the overview of the stack used for the websocket server and the protocol used in the connection itself.
 
+
+
+## Redis Structure
+
+Redis is used to hold data on rooms and users, the data hold in the Redis follows the following form.
+
+### Room
+
+Rooms are handled thusly:
+
+```
+room:room_id = {
+	"room_id": VALUE,
+	"admin": USER_ID,
+	"turn_state": VALUE,
+	"turn" = INTEGER
+	"real_turn" = INTEGER
+	"turn_owner_index" = INTEGER
+}
+
+room:room_id:users = [USER_ID, USER_ID, USER_ID]
+room:room_id:changelings = [USER_ID, USER_ID, USER_ID]
+```
+
+### User
+
+Users are handled thusly:
+
+```
+user:user_id = {
+	"user_id": VALUE,
+	"username": VALUE,
+	"portrait_name": VALUE,
+	"player_role": "VALUE"
+}
+```
+
+
+
+
+
+
+
 ## Server Structure
 
 Changeling's server uses Python 3.7 with the `websockets` package for easy prototyping, this package is more than enough to handle the data traffic the game will produce.

@@ -2,15 +2,12 @@
 from flask import Flask, session, request, g
 from json import dumps, loads
 from flask_socketio import SocketIO, join_room, rooms
-from dataclasses import dataclass
-from enum import Enum
-from game_internals import GameRoom, User, GameState, PlayerState, RoomConnectionManager
+from game_internals import User, GameState, PlayerState, Room
 
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' # This will obviously change on production.
 socketio = SocketIO(app, cors_allowed_origins="*")
-room_manager = RoomConnectionManager(host="localhost", port=6379, db=0)
 app.config['MAX_USERS_PER_ROOM'] = 5
 
 
@@ -21,8 +18,9 @@ def sync_room_state(room_id: str) -> None:
     :param room_id: ID of the room to sync.
     :return:
     """
-    room = room_manager[room_id]  # Get the room.
-    socketio.emit("resp_sync_gamestate", dumps(room.game_state),
+    room = Room(room_id)  # Get the room.
+    payload = dumps(room.get_game_state())
+    socketio.emit("resp_sync_gamestate", payload,
                   room=room_id)  # Emit the new game state to all members of the room.
     sync_user_states(room_id)
 
@@ -37,7 +35,7 @@ def sync_user_states(room_id: str) -> None:
     :param room_id: ID of the room to sync.
     :return: None
     """
-    room = room_manager[room_id]
+    room = Room(room_id)
     normal_users = [user for user in room.users if user not in room.changelings]
     camper_view = room.get_user_states(False)  # View the campers see.
     changeling_view = room.get_user_states(True)  # View the changelings see.
@@ -71,12 +69,10 @@ def host_game(data: str) -> None:
         emit_error("err_already_joined")
         return
     user_id = request.sid
-    new_user = User(user_id, payload["name"], payload["portrait"])
-    room_id = room_manager.generate_room_id()  # Generate new room id.
-    new_room = GameRoom(room_id, new_user, [new_user, ], [], 0,
-                        GameState.LOBBY)
+    new_user = User(user_id, payload["name"], payload["portrait"], player_role=PlayerState.UNASSIGNED)
+    room_id = Room.generate_room_id()  # Generate new room id.
+    new_room = Room(room_id, new_user)
     new_room.turn_owner = new_user  # Set the admin as the current turn owner.
-    room_manager[room_id] = new_room  # Add room to the room "list".
     join_room(room_id)  # Actually join the room.
     session["user_room"] = room_id
     session["user_obj"] = new_user  # Set the user object.
@@ -99,18 +95,17 @@ def join_game(data) -> None:
     user_id = request.sid
     new_user = User(user_id, payload["name"], payload["portrait"])
     room_id = payload["roomID"]
-    if room_id not in room_manager:
+    if not Room.room_exists(room_id):
         emit_error("err_room_not_found")
         return
-    room = room_manager[room_id] # Get the room object.
+    room = Room(room_id) # Get the room object.
     if len(room.users) >= app.config["MAX_USERS_PER_ROOM"]:
         emit_error("err_user_limit")
         return
-    room.users.append(new_user)
+    room.add_player(new_user)
     socketio.emit("resp_ack_join", dumps({"roomID": room_id, "player": new_user.get_player_data()}), room=user_id)  # Acknowledge game join
     session["user_obj"] = new_user
     session["user_room"] = room_id
-    room_manager[room_id] = room
     join_room(room_id)
     sync_user_states(room_id)
 
@@ -121,14 +116,13 @@ def start_game() -> None:
     Answer to the request of starting the game.
     """
     user, room_id = session['user_obj'], session['user_room']  # Get the current user and room id.
-    room = room_manager[room_id]  # Get the room object from the room manager.
+    room = Room(room_id)  # Get the room object from the room manager.
     room.turn_state = GameState.NORMAL  # Start the game.
     room.turn = 40
     room.turn_owner = room.users[0]
     selected_user = room.assign_roles()
     if selected_user == session['user_obj']:  # If our player turned.
         session['user_obj'] = selected_user  # Update its state.
-    room_manager[room_id] = room  # Update the room_state
     socketio.emit("resp_ack_start", room=room_id)  # Send start signal.
     sync_room_state(room_id)  # Synchronise the room state.
 
@@ -139,14 +133,12 @@ def next_turn() -> None:
     Answer to the request to progress to
         the next turn.
     """
-    user, room = session['user_obj'], room_manager[session['user_room']]
+    user, room = session['user_obj'], Room(session['user_room'])
     if user != room.turn_owner:
         emit_error("err_user_not_owner")  # User does not have the permission for this!
     else:
         room.next_turn()
-        room_manager[session['user_room']] = room
         sync_room_state(session['user_room'])  # Sync the room state.
-
 
 
 if __name__ == '__main__':

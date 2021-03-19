@@ -195,9 +195,9 @@ class ConnectionObject:
         :param item: Attribute to return.
         :return: The attribute
         """
-        if item in self.__dict__["cache"]:  # Check if it is in cache.
-            return self.__dict__["cache"][item]
-        value = self.connection_manager.get_from(self.type_, self.user_id, item)
+        if item in (cache := self.__dict__["cache"]) and (val := cache[item]) is not None:  # Check if it is in cache.
+            return val
+        value = self.connection_manager.get_from(self.type_, self.id_, item)
         self.__dict__['cache'][item] = value  # Cache it if it is not.
         return value
 
@@ -210,6 +210,8 @@ class ConnectionObject:
         store_value = value # Value to be stored.
         if isinstance(value, Enum): # If value is enum
             store_value = value.value # String version of the enum.
+        elif isinstance(value, User):
+            store_value = value.user_id
         self.connection_manager.modify(self.type_, self.id_, key, store_value)
         self.__dict__["cache"][key] = value  # Cache the change, the enum version if it is enum..
 
@@ -272,22 +274,29 @@ class Room(ConnectionObject):
         self.__dict__["room_id"] = room_id
         values = {
             "room_id": room_id,
-            "admin": admin.user_id,
+            "admin": admin.user_id if admin else '',
             "turn_state": GameState.LOBBY.value,  # Initial condition.
             "turn": 0,
             "real_turn": 0,
             "turn_owner_index": 0
         }
+        self.__dict__['special_attributes'] = {  # Dictionary that holds attributes that must be converted.
+            'admin': User,
+            'turn_type': GameState,
+            'turn': int,
+            'turn_state': int
+        }
         super().__init__('room', room_id, values)
-        self.connection_manager.push_list(self, 'users', admin.user_id)
+        if admin:  # If just initialised.
+            self.connection_manager.push_list(self, 'users', admin.user_id)
 
     def __getattr__(self, item) -> Any:
         # Get Attribute must be overriden
         # To deal with lists and enums.
         if item in ['users', 'changelings']:
             return self.connection_manager.get_list(self, item, lambda e: User(e))
-        elif item == 'turn_state':
-            return GameState(super().__getattr__('turn_state'))
+        elif item in self.__dict__['special_attributes']:
+            return self.__dict__['special_attributes'][item](super().__getattr__(item))  # Convert it into the right type.
         return super().__getattr__(item)  # Otherwise call connection object's variation.
 
     def __setattr__(self, key, value) -> None:
@@ -314,7 +323,8 @@ class Room(ConnectionObject):
 
     @property
     def turn_owner(self) -> User:
-        return self.users[self.turn_owner_index % 5]
+        users_list = self.connection_manager.get_list(self, 'users', lambda e: User(e))
+        return users_list[int(self.turn_owner_index) % 5]
 
     def assign_roles(self) -> User:
         """
@@ -341,8 +351,7 @@ class Room(ConnectionObject):
         user_states = "{ \"players\": [" + ','.join(map(dumps, user_states)) + "]}"  # Convert it to json.
         return user_states
 
-    @property
-    def game_state(self):
+    def get_game_state(self):
         """
         The state of the room, ie: the dictionary
             for the JSON callback to the resp_sync_gamestate
@@ -350,7 +359,7 @@ class Room(ConnectionObject):
         :return: The state of the game room, minus the users.
         """
         return {
-            "game_state": self.turn_state.value,
+            "game_state": self.turn_state,
             "turn_count": self.turn,
             "ownership": self.turn_owner.user_id
         }

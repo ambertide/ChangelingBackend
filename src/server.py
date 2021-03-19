@@ -2,8 +2,6 @@
 from flask import Flask, session, request, g
 from json import dumps, loads
 from flask_socketio import SocketIO, join_room, rooms
-from dataclasses import dataclass
-from enum import Enum
 from game_internals import User, GameState, PlayerState, Room
 
 
@@ -21,7 +19,8 @@ def sync_room_state(room_id: str) -> None:
     :return:
     """
     room = Room(room_id)  # Get the room.
-    socketio.emit("resp_sync_gamestate", dumps(room.game_state),
+    payload = dumps(room.get_game_state())
+    socketio.emit("resp_sync_gamestate", payload,
                   room=room_id)  # Emit the new game state to all members of the room.
     sync_user_states(room_id)
 
@@ -73,7 +72,6 @@ def host_game(data: str) -> None:
     new_user = User(user_id, payload["name"], payload["portrait"], player_role=PlayerState.UNASSIGNED)
     room_id = Room.generate_room_id()  # Generate new room id.
     new_room = Room(room_id, new_user)
-    new_room.add_player(new_user)
     new_room.turn_owner = new_user  # Set the admin as the current turn owner.
     join_room(room_id)  # Actually join the room.
     session["user_room"] = room_id
@@ -97,7 +95,7 @@ def join_game(data) -> None:
     user_id = request.sid
     new_user = User(user_id, payload["name"], payload["portrait"])
     room_id = payload["roomID"]
-    if Room.room_exists(room_id):
+    if not Room.room_exists(room_id):
         emit_error("err_room_not_found")
         return
     room = Room(room_id) # Get the room object.

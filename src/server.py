@@ -140,6 +140,37 @@ def next_turn() -> None:
         room.next_turn()
         sync_room_state(session['user_room'])  # Sync the room state.
 
+@socketio.on("req_affect_player")
+def affect_player(data) -> None:
+    """
+    Affect a player's state depending on the
+        requestee's state. If the requestee
+        is the voter changeling, turn the
+        player to a changeling, if the requestee
+        is not dead and it is time to vote, cast
+        a vote.
+
+    :param data: Data contains a single field,
+        selected-player.
+    :return:
+    """
+    user, room = session['user_obj'], Room(session['user_room'])
+    payload = loads(data)
+    user_id = payload['selected_user']  # Get the selected user.
+    if room.turn_owner == user and room.turn_state == GameState.CAMPFIRE_OUT:  # If user is turning a changeling.
+        affected_user = User(user_id)
+        affected_user.player_role = PlayerState.CHANGELING  # Convert player to changeling.
+        room.add_changeling(affected_user)  # Add to the changelings list.
+        room.next_turn()
+    elif (user.player_role == PlayerState.CAMPER or user.player_role == PlayerState.CHANGELING) and room.turn_state == GameState.BURN_CAMPER:
+        # Time to vote for a player.
+        room.cast_vote(user_id)
+        if room.has_all_voted():  # If everybody voted.
+            affected_user = room.tally_votes()
+            room.burn_player(affected_user)
+            room.next_turn()
+    sync_room_state(room.id_)
+
 
 if __name__ == '__main__':
     socketio.run(app,  debug=True)

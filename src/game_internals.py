@@ -175,6 +175,29 @@ class ConnectionManager(metaclass=Singleton):
             key += f":{suffix}"  # Add suffix if exists.
         self.connection.hincrby(key, attribute, 1)
 
+    def get_dict(self, object_: "ConnectionObject", suffix: str) -> dict[str, Any]:
+        """
+        Get a hash object as a dictionary.
+
+        :param object_: Object that owns the hash.
+        :param suffix: Suffix of the hash.
+        :return: The hash object as a dictionary.
+        """
+        dict_ = self.connection.hgetall(f"{object_.type_}:{object_.id_}:{suffix}")
+        return dict_
+
+    def remove_element_from_list(self, object_: "ConnectionObject", suffix: str, element: str) -> None:
+        """
+        Remove a string from a list.
+
+        :param object_: Object that owns the list.
+        :param suffix: Name of the list.
+        :param element: Element to remove
+        :return: None.
+        """
+        self.connection.lrem(f"{object_.type_}:{object_.id_}:{suffix}", 0, element)  # Remove the element from the list.
+
+
 
 class ConnectionObject:
     """
@@ -379,20 +402,61 @@ class Room(ConnectionObject):
         :param user_id: ID of the user voted to be burned
         """
         self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
+        self.connection_manager.increment(self, 'users_voted')  # Increment the number of users who have voted.
 
-    def next_turn(self) -> GameState:
+    def has_all_voted(self) -> bool:
+        """
+        Return true if all the users have voted.
+
+        :return: true if all users voted, false otherwise.
+        """
+        users = self.users
+        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)  # Get the number of living players.
+        return self.users_voted == number_of_living
+
+    def tally_votes(self) -> User:
+        """
+        Tally the votes and return the user that
+            has the maximum amount of votes.
+
+        :return: The user with the maximum amount of
+            votes.
+        """
+        votes = self.connection_manager.get_dict(self, 'user_votes')
+        tuples: list[tuple[str, Any]] = [*votes.items()]  # Convert it into a list of KV pair tuples for sorting.
+        tuples.sort(key=lambda kv_pair: kv_pair[1], reverse=True)
+        return User(tuples[0][0])
+
+    def burn_player(self, player: User) -> None:
+        """
+        Burn a player character by converting their role
+            to dead.
+
+        :param player:
+        :return:
+        """
+        player.player_role = PlayerState.DEAD  # Set player to dead.
+        # There is a chance that the player is also changeling,
+        # Therefore we need to remove it if it is.
+        changelings = self.changelings
+        if player in changelings:
+            self.connection_manager.remove_element_from_list(self, 'changelings', player.id_)
+
+    def next_turn(self, progress: bool = False) -> GameState:
         """
         Proceed to the next turn decide if it should be a special turn.
 
+        :param progress: When set to true, do not roll dice for special
+            turns.
         :return: The state the turn is in after progressing.
         """
         self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
-        if self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
+        if not progress and self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
             self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.CHANGELING_VICTORY])
             if self.turn_state == GameState.BURN_CAMPER:
                 self.set_up_voting()
-        else:
+        else:  # Also triggers when progress.
             self.connection_manager.increment(self, 'turn')
             self.connection_manager.increment(self, 'turn_owner_index')
         return self.turn_state
@@ -423,5 +487,3 @@ class Room(ConnectionObject):
         :param user: User to add.
         """
         self.connection_manager.push_list(self, 'changelings', user.id_)
-
-

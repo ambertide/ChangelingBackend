@@ -19,10 +19,18 @@ room:room_id = {
 	"turn" = INTEGER
 	"real_turn" = INTEGER
 	"turn_owner_index" = INTEGER
+	"users_voted": 0
 }
 
 room:room_id:users = [USER_ID, USER_ID, USER_ID]
 room:room_id:changelings = [USER_ID, USER_ID, USER_ID]
+
+room:room_id:user_votes {
+	"user_id": 0,
+	"user_id": 0,
+	"user_id": 0,
+	...
+}
 ```
 
 ### User
@@ -40,29 +48,9 @@ user:user_id = {
 
 
 
-
-
-
-
-## Server Structure
-
-Changeling's server uses Python 3.7 with the `websockets` package for easy prototyping, this package is more than enough to handle the data traffic the game will produce.
-
-### Protocol
-
-Changeling's protocol is a JSON protocol, each message between the client and the server carries the minimum amount of information, the server is authorative over the client to the point that the client acts similar to a dummy terminal.
-
-#### Client Requests 
+## Client Requests
 
 All messages from client to server are **requests**, following requests can be sent:
-
-* Request to create a new game.
-* Request to join an existing game.
-* Request to start the game from its lobby.
-* Request to restart the current game after it finished.
-* Request to finish one's own turn.
-* Request to vote on a camper.
-* Request to turn a camper to a changeling.
 
 ##### Request to create a new game
 
@@ -155,7 +143,9 @@ No format, empty event.
 
 No format, empty event.
 
-#### Server Updates
+##### Request Next Turn
+
+## Server Updates
 
 Server provides the following updates to sync up the game state between the clients:
 
@@ -199,7 +189,7 @@ Therefore there are two special cases in the application that necessitates.
     "user_id": "user_id",
     "name": "user_name",
     "portraitName": "portrait_id",
-    "playerRole": "playerRole"
+    "playerRole": "playerRole",
     "admin": true
 }
 ```

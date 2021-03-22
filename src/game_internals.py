@@ -305,9 +305,9 @@ class Room(ConnectionObject):
         }
         self.__dict__['special_attributes'] = {  # Dictionary that holds attributes that must be converted.
             'admin': User,
-            'turn_type': GameState,
+            'turn_state': lambda s: GameState(int(s)),
             'turn': int,
-            'turn_state': int
+            'users_voted': int
         }
         super().__init__('room', room_id, values)
         if admin:  # If just initialised.
@@ -382,7 +382,7 @@ class Room(ConnectionObject):
         :return: The state of the game room, minus the users.
         """
         return {
-            "game_state": self.turn_state,
+            "game_state": self.turn_state.value,
             "turn_count": self.turn,
             "ownership": self.turn_owner.user_id
         }
@@ -453,12 +453,13 @@ class Room(ConnectionObject):
         self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
         if not progress and self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
-            self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.CHANGELING_VICTORY])
+            self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.BURN_CAMPER])
             if self.turn_state == GameState.BURN_CAMPER:
                 self.set_up_voting()
         else:  # Also triggers when progress.
             self.connection_manager.increment(self, 'turn')
             self.connection_manager.increment(self, 'turn_owner_index')
+            self.turn_state = GameState.NORMAL
         return self.turn_state
 
     @classmethod

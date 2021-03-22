@@ -7,7 +7,7 @@ from game_internals import User, GameState, PlayerState, Room
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'secret!' # This will obviously change on production.
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", logger=True)
 app.config['MAX_USERS_PER_ROOM'] = 5
 
 
@@ -76,7 +76,7 @@ def host_game(data: str) -> None:
     join_room(room_id)  # Actually join the room.
     session["user_room"] = room_id
     session["user_obj"] = new_user  # Set the user object.
-    socketio.emit("resp_ack_host", dumps({"room_id": room_id, **new_user.get_player_data(admin=True)}))
+    socketio.emit("resp_ack_host", dumps({"room_id": room_id, **new_user.get_player_data(admin=True)}), room_id=user_id)
 
 
 @socketio.on("req_join_game")
@@ -140,6 +140,7 @@ def next_turn() -> None:
         room.next_turn()
         sync_room_state(session['user_room'])  # Sync the room state.
 
+
 @socketio.on("req_affect_player")
 def affect_player(data) -> None:
     """
@@ -168,9 +169,9 @@ def affect_player(data) -> None:
         if room.has_all_voted():  # If everybody voted.
             affected_user = room.tally_votes()
             room.burn_player(affected_user)
-            room.next_turn()
+            room.next_turn(progress=True)  # Continue to next level.
     sync_room_state(room.id_)
 
 
 if __name__ == '__main__':
-    socketio.run(app,  debug=True)
+    socketio.run(app)

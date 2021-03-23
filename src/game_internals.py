@@ -59,7 +59,7 @@ class ConnectionManager(metaclass=Singleton):
     """
     def __init__(self):
         self.connection = Redis(host=REDIS_HOST, port=REDIS_PORT,
-                                username=REDIS_USERNAME, password=REDIS_PASSWORD,
+                                username=REDIS_USERNAME,
                                 db=0, decode_responses=True)
 
     def create_obj(self, object_: "ConnectionObject", mapping: dict[str, str], suffix: str = "") -> None:

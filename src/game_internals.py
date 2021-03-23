@@ -3,7 +3,7 @@ from random import random, choice
 from json import dumps
 from typing import Any, Callable
 from redis import Redis
-from configs import REDIS_URL
+from .configs import REDIS_URL
 
 
 class GameState(Enum):

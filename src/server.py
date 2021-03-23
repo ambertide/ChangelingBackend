@@ -5,7 +5,7 @@ from flask_socketio import SocketIO, join_room, rooms
 from .game_internals import User, GameState, PlayerState, Room
 
 
-app = Flask(__name__, static_folder='../frontend', static_url_path='/')
+app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", logger=True)
 app.config['MAX_USERS_PER_ROOM'] = 5
 

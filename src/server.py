@@ -2,11 +2,10 @@
 from flask import Flask, session, request
 from json import dumps, loads
 from flask_socketio import SocketIO, join_room, rooms
-from game_internals import User, GameState, PlayerState, Room
+from .game_internals import User, GameState, PlayerState, Room
 
 
-app = Flask(__name__)
-app.config['SECRET_KEY'] = 'secret!' # This will obviously change on production.
+app = Flask(__name__, static_folder='../frontend', static_url_path='/')
 socketio = SocketIO(app, cors_allowed_origins="*", logger=True)
 app.config['MAX_USERS_PER_ROOM'] = 5
 
@@ -171,7 +170,3 @@ def affect_player(data) -> None:
             room.burn_player(affected_user)
             room.next_turn(progress=True)  # Continue to next level.
     sync_room_state(room.id_)
-
-
-if __name__ == '__main__':
-    socketio.run(app)

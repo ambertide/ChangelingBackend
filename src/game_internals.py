@@ -3,7 +3,7 @@ from random import random, choice
 from json import dumps
 from typing import Any, Callable
 from redis import Redis
-from .configs import REDIS_URL
+from .configs import REDIS_PORT, REDIS_PASSWORD, REDIS_HOST, REDIS_USERNAME
 
 
 class GameState(Enum):
@@ -58,9 +58,9 @@ class ConnectionManager(metaclass=Singleton):
     Connection manager for Redis instance, a singleton.
     """
     def __init__(self):
-        port = REDIS_URL.split(':')[-1]
-        host = REDIS_URL[0:-len(port) - 1]
-        self.connection = Redis(host=host, port=port, db=0, decode_responses=True)
+        self.connection = Redis(host=REDIS_HOST, port=REDIS_PORT,
+                                username=REDIS_USERNAME, password=REDIS_PASSWORD,
+                                db=0, decode_responses=True)
 
     def create_obj(self, object_: "ConnectionObject", mapping: dict[str, str], suffix: str = "") -> None:
         """

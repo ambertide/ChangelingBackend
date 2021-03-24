@@ -1,7 +1,7 @@
 from enum import Enum
 from random import random, choice
 from json import dumps
-from typing import Any, Callable
+from typing import Any, Callable, Optional, Union
 from redis import Redis
 from .configs import REDIS_CONFIG
 
@@ -28,6 +28,18 @@ class PlayerState(Enum):
     CHANGELING = "changeling"
     CAMPER = "camper"
     DEAD = "dead"
+
+
+def get_game_state_from_player(player_type: PlayerState) -> GameState:
+    """
+    Given the player type that won, return the
+        GameState that will be set.
+
+    :param player: Player type that won.
+    :return: Game state to set.
+    """
+    return {PlayerState.CHANGELING: GameState.CHANGELING_VICTORY,
+            PlayerState.CAMPER: GameState.CAMPER_VICTORY}[player_type]
 
 
 class NoSuchRoomException(Exception):
@@ -407,15 +419,24 @@ class Room(ConnectionObject):
         self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
         self.connection_manager.increment(self, 'users_voted')  # Increment the number of users who have voted.
 
+    @property
+    def number_of_living(self) -> int:
+        """
+        Number of living players.
+
+        :return: The number of players who are not dead.
+        """
+        users = self.users
+        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)
+        return number_of_living
+
     def has_all_voted(self) -> bool:
         """
         Return true if all the users have voted.
 
         :return: true if all users voted, false otherwise.
         """
-        users = self.users
-        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)  # Get the number of living players.
-        return self.users_voted == number_of_living
+        return self.users_voted == self.number_of_living
 
     def tally_votes(self) -> User:
         """
@@ -445,6 +466,20 @@ class Room(ConnectionObject):
         if player in changelings:
             self.connection_manager.remove_element_from_list(self, 'changelings', player.id_)
 
+    def get_winner(self) -> Optional[Union[PlayerState.CHANGELING, PlayerState.CAMPER]]:
+        """
+        Return the winner of the game, if there is any.
+
+        :return: Either camper or changeling, or None if there is no victory.
+        """
+        changeling_count = len(self.changelings)  # Get the count of changelings.
+        if changeling_count > self.number_of_living:  # If the changelings are in a majority.
+            return PlayerState.CHANGELING  # Then the changelings won.
+        elif self.turn > 40 or not changeling_count:  # If the daylight came or all changelings died.
+            return PlayerState.CAMPER  # Then the campers won.
+        else:  # Otherwise
+            return None  # Then no one won.
+
     def next_turn(self, progress: bool = False) -> GameState:
         """
         Proceed to the next turn decide if it should be a special turn.
@@ -454,7 +489,9 @@ class Room(ConnectionObject):
         :return: The state the turn is in after progressing.
         """
         self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
-        if not progress and self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
+        if winner := self.get_winner():
+            self.turn_state = winner
+        elif not progress and self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
             self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.BURN_CAMPER])
             if self.turn_state == GameState.BURN_CAMPER:

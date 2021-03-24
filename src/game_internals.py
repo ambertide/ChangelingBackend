@@ -1,7 +1,7 @@
 from enum import Enum
 from random import random, choice
 from json import dumps
-from typing import Any, Callable, Optional, Union
+from typing import Any, Callable, Optional
 from redis import Redis
 from .configs import REDIS_CONFIG
 
@@ -211,7 +211,6 @@ class ConnectionManager(metaclass=Singleton):
         :return: None.
         """
         self.connection.lrem(f"{object_.type_}:{object_.id_}:{suffix}", 0, element)  # Remove the element from the list.
-
 
 
 class ConnectionObject:
@@ -466,7 +465,7 @@ class Room(ConnectionObject):
         if player in changelings:
             self.connection_manager.remove_element_from_list(self, 'changelings', player.id_)
 
-    def get_winner(self) -> Optional[Union[PlayerState.CHANGELING, PlayerState.CAMPER]]:
+    def get_winner(self) -> Optional[PlayerState]:
         """
         Return the winner of the game, if there is any.
 

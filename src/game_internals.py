@@ -418,15 +418,23 @@ class Room(ConnectionObject):
         self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
         self.connection_manager.increment(self, 'users_voted')  # Increment the number of users who have voted.
 
+    def get_number_of_living(self) -> int:
+        """
+        Number of living players.
+
+        :return: The number of players who are not dead.
+        """
+        users = self.users
+        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)
+        return number_of_living
+
     def has_all_voted(self) -> bool:
         """
         Return true if all the users have voted.
 
         :return: true if all users voted, false otherwise.
         """
-        users = self.users
-        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)
-        return self.users_voted == self.number_of_living
+        return self.users_voted == self.get_number_of_living()
 
     def tally_votes(self) -> User:
         """
@@ -463,7 +471,7 @@ class Room(ConnectionObject):
         :return: Either camper or changeling, or None if there is no victory.
         """
         changeling_count = len(self.changelings)  # Get the count of changelings.
-        if changeling_count > self.number_of_living:  # If the changelings are in a majority.
+        if changeling_count > self.get_number_of_living():  # If the changelings are in a majority.
             return PlayerState.CHANGELING  # Then the changelings won.
         elif self.turn > 40 or not changeling_count:  # If the daylight came or all changelings died.
             return PlayerState.CAMPER  # Then the campers won.

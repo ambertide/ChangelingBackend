@@ -418,23 +418,14 @@ class Room(ConnectionObject):
         self.connection_manager.increment(self, user_id, 'user_votes')  # Increment vote count for a user.
         self.connection_manager.increment(self, 'users_voted')  # Increment the number of users who have voted.
 
-    @property
-    def number_of_living(self) -> int:
-        """
-        Number of living players.
-
-        :return: The number of players who are not dead.
-        """
-        users = self.users
-        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)
-        return number_of_living
-
     def has_all_voted(self) -> bool:
         """
         Return true if all the users have voted.
 
         :return: true if all users voted, false otherwise.
         """
+        users = self.users
+        number_of_living = sum(user.player_role != PlayerState.DEAD for user in users)
         return self.users_voted == self.number_of_living
 
     def tally_votes(self) -> User:

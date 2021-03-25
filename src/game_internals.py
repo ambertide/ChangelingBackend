@@ -488,7 +488,7 @@ class Room(ConnectionObject):
         """
         self.connection_manager.increment(self, 'real_turn')  # This is updated no matter what.
         if winner := self.get_winner():
-            self.turn_state = winner
+            self.turn_state = get_game_state_from_player(winner)
         elif not progress and self.turn != 0 and self.turn % 5 == 0:  # If turn is divisible by five
             # In special turn we either burn a camper or create a changeling.
             self.turn_state = choice([GameState.BURN_CAMPER, GameState.BURN_CAMPER, GameState.BURN_CAMPER])
